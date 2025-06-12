@@ -1,0 +1,150 @@
+---
+title: "bfda_simulations"
+author: "Carolina Guidolin"
+date: "2025-06-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Running BFDA with final linear mixed model 
+The final linear mixed model formulation is:
+melatonin suppression = E2 levels + P4 levels + (E2 levels |ID) + (P4 levels | ID) + (1 | ID). 
+This means that we are accounting for random intercepts and random slopes. To run this model using the BayesFactor package, we use te notation to include both random slopes and intercept which is specified in [this GitHub issue on the package GitHubpage](https://github.com/richarddmorey/BayesFactor/issues/141#issuecomment-789199943).  
+
+## Importing the informed parameters
+These have been calculated in the previous script (informed_data_simulation.Rmd)
+```{r}
+set.seed(20250602)
+
+library(tidyverse)
+library(lmerTest)
+library(BayesFactor)
+library(furrr)
+
+informed_parameters <- read.csv("informed_parameters.csv")
+
+# Keep only cols of interest
+informed_parameters <- informed_parameters %>%
+  select(intercept_mean, e2_slope_mean, p4_slope_mean) 
+```
+
+## Defining model parameters for bfda simulations
+```{r}
+# Fixed participant number, dictated by resource limitations
+n_ids <- 12 
+
+# Select possible values for intercept mean, based on what we know worked from informed_data_simulation
+intercept_mean_list <- list(informed_parameters$intercept_mean)
+
+# Select possible values for the slopes (i.e. the betas of the predictors), based on what we know worked from informed_data_simulation
+e2_slope_mean_list <- list(informed_parameters$e2_slope_mean)
+p4_slope_mean_list <- list(informed_parameters$p4_slope_mean)
+
+# Fix the standard deviations for the intercept and slopes, based on what we know worked
+intercept_sd <- 0.2
+e2_slope_sd <- 0.2
+p4_slope_sd <- 0.2
+
+# Specify values of E2 and P4 (expressed as standardised values between -1 and 1)
+e2_min_value <- -1
+e2_max_value <- 1
+p4_min_value <- -1
+p4_max_value <- 1
+
+# Define number of simulations to run
+num_simulations <- 100 
+
+# Define threshold for Bayes Factor 
+bf_threshold <- 3
+```
+
+# Run parallel simulations using all cores to speed up the simulation
+This code will take approximately 5:30 hours on a Windows 11 machine with 32 GB RAM, on 11 cores. 
+```{r}
+# Use all available cores
+plan(multisession, workers = parallel::detectCores() - 1)
+
+# Run BFDA 
+new_bfda_simulated_data_parallel_100 <- furrr::future_map_dfr(1:nrow(informed_parameters), function(row) {
+  
+  # Store BFs for simulations
+  bf_list <- numeric(num_simulations)
+  
+  # Create a for loop to iterate through the possible combinations of parameters (intercept, e2 slopes, and p4 slope)
+  for (simulation in seq_len(num_simulations)) {
+    
+    # Sample intercept and slopes from normal distribution of defined parameters
+    intercept <- rnorm(n_ids, mean = informed_parameters$intercept_mean[row], sd = intercept_sd)
+    e2_slope  <- rnorm(n_ids, mean = informed_parameters$e2_slope_mean[row], sd = e2_slope_sd)
+    p4_slope  <- rnorm(n_ids, mean = informed_parameters$p4_slope_mean[row], sd = p4_slope_sd)
+    
+    # Simulate data for n_ids individuals
+    # Sampling values from a uniform distribution 
+    sim_data <- data.frame(
+      id = factor(rep(1:n_ids, each = 4)),
+      e2_value = runif(4 * n_ids, e2_min_value, e2_max_value),
+      p4_value = runif(4 * n_ids, p4_min_value, p4_max_value)
+    )
+    
+    # Create values for y by solving the equation and add noise
+    sim_data$y <- intercept[sim_data$id] +
+      e2_slope[sim_data$id] * sim_data$e2_value +
+      p4_slope[sim_data$id] * sim_data$p4_value +
+      rnorm(n_ids * 4, mean = 0, sd = 0.3)
+    
+    # Keep id separate for later - needed for specifying random slopes
+    sim_data$id0 <- sim_data$id 
+    
+    # Check no created data is NA
+    if (anyNA(sim_data)) stop(sprintf("NA found in sim_data at row %d, simulation %d", row, simulation))
+    
+    # Calculate BF
+    # The lmBF function already calculates the ratio between the full model and a model
+    # where the intercept is the grand mean
+    bf_full <- BayesFactor::lmBF(
+      y ~ e2_value + p4_value + id + id0:p4_value + id0:e2_value,
+      data = sim_data,
+      whichRandom = "id",
+      progress = FALSE
+    )
+    
+    # This function calculates the ratio between a model where 
+    # the intercept is different for each id compared to a model where the intercept in the grand mean 
+    bf_only_intercept <- BayesFactor::lmBF(
+      y ~ id,
+      data = sim_data,
+      whichRandom = "id",
+      progress = FALSE
+    )
+    
+    # Take ratio of these two models, meaning the models where intercept
+    # is the grand mean cancel each other out
+    # So we are effectively taking a ratio between the full model and a model where the intercept is different for id
+    bf_ratio <- bf_full / bf_only_intercept
+    
+    # Extract BF
+    bf_list[simulation] <- as.numeric(BayesFactor::extractBF(bf_ratio)$bf)
+  }
+  
+  # Calculate the true positive rate (TPR)
+  TPR <- sum(bf_list > bf_threshold) / num_simulations
+  
+  # Return one row per each iteration
+  tibble::tibble(
+    intercept_mean = informed_parameters$intercept_mean[row],
+    e2_slope_mean  = informed_parameters$e2_slope_mean[row],
+    p4_slope_mean  = informed_parameters$p4_slope_mean[row],
+    TPR = TPR
+  )
+},
+.options = furrr_options(seed = 20250602) # setting seed so we always get the same results 
+)
+
+# Save the data file 
+write.csv(new_bfda_simulated_data_parallel_100, "new_bfda_simulated_data_100_parallelised.csv", row.names = FALSE)
+
+```
+

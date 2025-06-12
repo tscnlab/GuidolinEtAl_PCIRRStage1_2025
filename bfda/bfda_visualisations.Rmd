@@ -1,0 +1,226 @@
+---
+title: "bfda_visualisations"
+author: "Carolina Guidolin"
+date: "2025-06-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Visualising TPR for E2 slope, P4 slope and intercept parameter combinations 
+First, we need to import the simulated data, which includes the TPR values 
+```{r}
+simulations_paralleled_100 <- read.csv("new_bfda_simulated_data_100_parallelised.csv")
+```
+
+## Heatmaps of pairwise combinations
+
+### Heatmap 1: E2 slope and P4 slope combination, faceted by intercept
+```{r}
+e2p4_slopes_faceted <- ggplot(simulations_paralleled_100, aes(x = e2_slope_mean, y = p4_slope_mean)) +
+  geom_tile(aes(fill = TPR), colour = "black") +
+  scale_fill_gradient(low = "white", high = "darkgreen",
+                      name = "TPR",
+                      breaks = c(0.2, 0.5, 0.8),
+                      limits = c(0, 1)
+                      ) +
+  labs(
+    title = "True positive rate (TPR) for E2 and P4 slope means combinations",
+    x = "E2 slope mean",
+    y = "P4 slope mean"
+  ) +
+   scale_x_continuous(
+    breaks = seq(-0.5, 0.5, by = 0.1),
+    limits = c(-0.55, 0.55),
+    labels = c("-0.5", "", "-0.3", "", "-0.1", "", "0.1", "", "0.3", "", "0.5"), 
+    # labels every second tick to avoid overcrowding
+  ) +
+  scale_y_continuous(
+    breaks = seq(-0.5, 0.5, by = 0.1),
+    limits = c(-0.55, 0.55)
+  ) +
+  coord_fixed(ratio = 1) +
+  theme_bw() +
+  theme(
+    aspect.ratio = 1,
+    panel.grid = element_blank(),  # clean up grid lines inside tiles
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  ) + 
+  # Changing the labels of each facet so that intercept mean values are rounded to one decimal
+facet_wrap( 
+  ~ intercept_mean,
+  labeller = labeller(
+    intercept_mean = function(x) {
+      rounded <- round(as.numeric(x), 1)
+      # Replace -0.0 with 0.0
+      rounded[rounded == -0.0] <- 0.0
+      sprintf("%.1f", rounded)
+    }
+  )
+)
+
+# Save plot
+ggsave(filename = "heatmap_faceted.png",
+       plot = e2p4_slopes_faceted,
+       width = 7.5, 
+       height = 7.5,
+       dpi = 600, 
+       bg = "white",
+       path= here::here("bfda", "outputs_plots"))
+```
+
+### Heatmap 2a: E2 slope and P4 slope, with "collapsed" intercept
+Since we observed that the intercept values do not make a big difference, we can now "collapse" the intercept values 
+```{r}
+e2p4_slopes_single <- ggplot(simulations_paralleled_100, aes(x = e2_slope_mean, y = p4_slope_mean)) +
+  geom_tile(aes(fill = TPR), colour = "black") +
+  scale_fill_gradient(low = "white", high = "darkgreen",
+                      name = "TPR",
+                      breaks = c(0.2, 0.5, 0.8),
+                      limits = c(0, 1)) +
+  labs(
+    title = "True positive rate for E2 and P4 slope \nmeans combinations",
+    x = "E2 slope mean",
+    y = "P4 slope mean"
+  ) +
+   scale_x_continuous(
+    breaks = seq(-0.5, 0.5, by = 0.1),
+    labels = c("-0.5", "", "-0.3", "", "-0.1", "0", "0.1", "", "0.3", "", "0.5"),
+    limits = c(-0.55, 0.55)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-0.5, 0.5, by = 0.1),
+    limits = c(-0.55, 0.55)
+  ) +
+  coord_fixed(ratio = 1) +
+  theme_bw() +
+  theme(
+    aspect.ratio = 1,
+    panel.grid = element_blank(),  
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    title = element_text(size = 16)
+  ) 
+
+# Save plot
+ggsave(filename = "heatmap_collapsed.png",
+       plot = e2p4_slopes_single,
+       width = 7, 
+       height = 7,
+       dpi = 600, 
+       bg = "white",
+       path= here::here("bfda", "outputs_plots")
+)
+```
+
+### Heatmap 2b: E2 alope and P4 slope, with "collapsed" intercept and colour coding based on TPR threshold
+We colour code blue to be TPR>=0.8 and yellow/cream to be TPR<.08
+```{r}
+# Create a column for color category
+simulations_paralleled_100$TPR_cat <- ifelse(simulations_paralleled_100$TPR >= 0.8, "≥0.8", "<0.8")
+
+e2p4_slopes_single_threshold <- ggplot(simulations_paralleled_100, aes(x = e2_slope_mean, y = p4_slope_mean)) +
+  geom_tile(aes(fill = TPR_cat), colour = "black") +
+  scale_fill_manual(values = c("≥0.8" = "#66b2d6", "<0.8" = "#ffffbf"), name = "TPR category") +
+  labs(
+    title = "True positive rate for E2 and P4 slope \nmeans combinations",
+    x = "E2 slope mean",
+    y = "P4 slope mean"
+  ) +
+  scale_x_continuous(
+    breaks = seq(-0.5, 0.5, by = 0.1),
+    labels = c("-0.5", "", "-0.3", "", "-0.1", "0", "0.1", "", "0.3", "", "0.5"),
+    limits = c(-0.55, 0.55)
+  ) +
+  scale_y_continuous(
+    breaks = seq(-0.5, 0.5, by = 0.1),
+    limits = c(-0.55, 0.55)
+  ) +
+  coord_fixed(ratio = 1) +
+  theme_bw() +
+  theme(
+    aspect.ratio = 1,
+    panel.grid = element_blank(),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 14),
+    title = element_text(size = 16)
+  )
+
+# Save plot
+ggsave(filename = "heatmap_collapsed_threshold.png",
+       plot = e2p4_slopes_single_threshold,
+       width = 5.5, 
+       height = 4.5,
+       dpi = 600, 
+       bg = "white",path= here::here("bfda", "outputs_plots")
+       )
+
+```
+
+### Heatmaps 2a and 2b combined
+```{r}
+library(patchwork)
+# Remove titles from individual plots
+plot_a <- e2p4_slopes_single + labs(title = NULL)
+plot_b <- e2p4_slopes_single_threshold + labs(title = NULL)
+
+# Combine the two plots side by side
+combined_plot <- plot_a + plot_b +
+  plot_annotation(
+    title = "True positive rate (TPR) across E2 and P4 slope means",
+    tag_levels = "A",
+    theme = theme(
+      plot.title = element_text(size = 16, hjust = 0.5)
+    )
+  ) &
+  theme(
+    axis.title.y = element_text(size = 14),
+    axis.title.x = element_text(size = 14),
+    axis.text = element_text(size = 12)
+  )
+
+# Save plot
+ggsave(filename = "heatmaps_combined.png",
+       plot = combined_plot,
+       width = 11, 
+       height = 4.5,
+       dpi = 600, 
+       bg = "white",path= here::here("bfda", "outputs_plots")
+       )
+```
+
+
+# Description of parameter combinations that lead to TPR values >0.8
+Here we provide a summary of the parameter combinations that yielded to TPR values equal to or higher than 0.8.
+```{r}
+
+successful_combinations <- simulations_paralleled_100 %>%
+  filter(TPR >= 0.8)
+
+successful_p4_slope <- successful_combinations %>%
+  count(p4_slope_mean) %>%
+  mutate(perc = (n / sum(n)) * 100)
+
+successful_e2_slope <- successful_combinations %>%
+  count(e2_slope_mean) %>%
+  mutate(perc = (n / sum(n)) * 100)
+
+successful_intercept <- successful_combinations %>%
+  count(intercept_mean) %>%
+  mutate(perc = (n / sum(n)) * 100)
+
+```
+
+# Description of the FPR, i.e. the TPR when we are simulating under the null model where slope values = 0 
+```{r}
+fpr_by_intercept <- simulations_paralleled_100 %>%
+  filter(e2_slope_mean == 0 & p4_slope_mean == 0) %>%
+  summarise(
+    FPR = mean(TPR),
+    FPR_sd = sd(TPR),
+    .groups = "drop"
+  )
+```
